@@ -1,0 +1,6 @@
+[submodule "modules/neorv32"]
+	path = modules/neorv32
+	url = https://github.com/stnolting/neorv32
+[submodule "sim/osvvm"]
+	path = sim/osvvm
+	url = https://github.com/OSVVM/OsvvmLibraries.git

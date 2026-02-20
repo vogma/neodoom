@@ -1,0 +1,17 @@
+[libraries]
+work.files = [
+  "rtl/common/common_pkg.vhd",
+  "rtl/uart/uart_tx_own.vhd",
+  "rtl/vga/vga_dma.vhd",
+  "rtl/vga/vga_controller.vhd",
+  "rtl/vga/vga_testpattern.vhd",
+  "rtl/vga/vga_dma_test.vhd",
+  "rtl/sccb/sccb_master.vhd",
+  "rtl/camera/ov7670_capture.vhd",
+  "rtl/i2c/i2c_master.vhd",
+  "rtl/debounce/debounce.vhd",
+  "rtl/sseg/hexdecoder.vhd",
+  "rtl/sseg/sseg_controller.vhd",
+  "rtl/sseg/sseg_cs_generator.vhd",
+  "sim/tb_vga_dma_burst.vhd",
+]
