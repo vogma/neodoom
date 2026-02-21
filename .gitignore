@@ -133,3 +133,4 @@ sw/**
 !sw/**/
 !sw/**/*.c
 !sw/**/makefile
+assets/doom1.wad
