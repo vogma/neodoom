@@ -407,6 +407,10 @@ proc create_root_design { parentCell } {
   set VGA_G [ create_bd_port -dir O -from 3 -to 0 VGA_G ]
   set VGA_R [ create_bd_port -dir O -from 3 -to 0 VGA_R ]
   set VGA_VS_O [ create_bd_port -dir O VGA_VS_O ]
+  set spi_dat_o [ create_bd_port -dir O spi_dat_o ]
+  set spi_clk_o [ create_bd_port -dir O spi_clk_o ]
+  set spi_csn_sd_o [ create_bd_port -dir O -from 0 -to 0 spi_csn_sd_o ]
+  set spi_dat_i [ create_bd_port -dir I spi_dat_i ]
 
   # Create instance: clk_wiz_0, and set properties
   set clk_wiz_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:clk_wiz:6.0 clk_wiz_0 ]
@@ -461,12 +465,13 @@ proc create_root_design { parentCell } {
     CONFIG.DCACHE_EN {true} \
     CONFIG.DCACHE_NUM_BLOCKS {256} \
     CONFIG.DMEM_EN {true} \
-    CONFIG.DMEM_SIZE {512} \
+    CONFIG.DMEM_SIZE {8192} \
     CONFIG.IMEM_EN {true} \
     CONFIG.IMEM_SIZE {65536} \
     CONFIG.IO_CLINT_EN {true} \
     CONFIG.IO_GPIO_EN {true} \
     CONFIG.IO_GPIO_OUT_NUM {8} \
+    CONFIG.IO_SPI_EN {true} \
     CONFIG.IO_TRNG_EN {true} \
     CONFIG.IO_UART0_EN {true} \
     CONFIG.IO_WDT_EN {true} \
@@ -605,6 +610,15 @@ proc create_root_design { parentCell } {
   ] $xlslice_2
 
 
+  # Create instance: xlslice_3, and set properties
+  set xlslice_3 [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlslice:1.0 xlslice_3 ]
+  set_property -dict [list \
+    CONFIG.DIN_FROM {1} \
+    CONFIG.DIN_TO {1} \
+    CONFIG.DIN_WIDTH {8} \
+  ] $xlslice_3
+
+
   # Create interface connections
   connect_bd_intf_net -intf_net mig_7series_0_DDR3 [get_bd_intf_ports ddr3_sdram] [get_bd_intf_pins mig_7series_0/DDR3]
   connect_bd_intf_net -intf_net neorv32_vivado_ip_m_axi [get_bd_intf_pins neorv32_vivado_ip/m_axi] [get_bd_intf_pins smartconnect_0/S00_AXI]
@@ -655,6 +669,12 @@ proc create_root_design { parentCell } {
   [get_bd_pins xlslice_0/Din] \
   [get_bd_pins xlslice_1/Din] \
   [get_bd_pins xlslice_2/Din]
+  connect_bd_net -net neorv32_vivado_ip_spi_clk_o  [get_bd_pins neorv32_vivado_ip/spi_clk_o] \
+  [get_bd_ports spi_clk_o]
+  connect_bd_net -net neorv32_vivado_ip_spi_csn_o  [get_bd_pins neorv32_vivado_ip/spi_csn_o] \
+  [get_bd_pins xlslice_3/Din]
+  connect_bd_net -net neorv32_vivado_ip_spi_dat_o  [get_bd_pins neorv32_vivado_ip/spi_dat_o] \
+  [get_bd_ports spi_dat_o]
   connect_bd_net -net neorv32_vivado_ip_uart0_txd_o  [get_bd_pins neorv32_vivado_ip/uart0_txd_o] \
   [get_bd_ports uart0_txd_o]
   connect_bd_net -net proc_sys_reset_0_peripheral_aresetn  [get_bd_pins proc_sys_reset_0/peripheral_aresetn] \
@@ -671,6 +691,8 @@ proc create_root_design { parentCell } {
   [get_bd_pins clk_wiz_0/resetn] \
   [get_bd_pins clk_wiz_1/resetn] \
   [get_bd_pins proc_sys_reset_1/ext_reset_in]
+  connect_bd_net -net spi_dat_i_0_1  [get_bd_ports spi_dat_i] \
+  [get_bd_pins neorv32_vivado_ip/spi_dat_i]
   connect_bd_net -net sys_clk_1  [get_bd_ports sys_clk] \
   [get_bd_pins clk_wiz_0/clk_in1]
   connect_bd_net -net uart0_rxd_i_1  [get_bd_ports uart0_rxd_i] \
@@ -701,6 +723,8 @@ proc create_root_design { parentCell } {
   [get_bd_pins vga_dma_engine_0/swap_req_seq_i]
   connect_bd_net -net xlslice_2_Dout  [get_bd_pins xlslice_2/Dout] \
   [get_bd_pins vga_dma_engine_0/swap_buf_sel_i]
+  connect_bd_net -net xlslice_3_Dout  [get_bd_pins xlslice_3/Dout] \
+  [get_bd_ports spi_csn_sd_o]
 
   # Create address segments
   assign_bd_address -offset 0x10000000 -range 0x10000000 -target_address_space [get_bd_addr_spaces neorv32_vivado_ip/m_axi] [get_bd_addr_segs mig_7series_0/memmap/memaddr] -force
