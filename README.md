@@ -104,15 +104,15 @@ https://github.com/user-attachments/assets/40dc531c-aafd-474a-8ac5-4f7e98fc5742
 
 ### 1. Prerequisites
 
-- **Vivado 2025.2** (for bitstream generation)
+- **Vivado 2025.2**
 - **RISC-V toolchain**: `riscv-none-elf-gcc` (e.g., from [xPack](https://xpack.github.io/riscv-none-elf-gcc/))
 - A FAT-formatted SD card with `DOOM1.WAD` copied to the root directory
 
 ### 2. Clone the repository
 
 ```bash
-git clone --recurse-submodules https://github.com/YOUR_USERNAME/doom-on-neorv32.git
-cd doom-on-neorv32
+git clone --recurse-submodules https://github.com/vogma/neodoom.git
+cd neodoom
 ```
 
 ### 3. Generate the Vivado project
