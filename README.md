@@ -136,7 +136,7 @@ This produces `sw/doom/neorv32_exe.bin`.
 Insert the SD card (with `DOOM1.WAD`) into the PMOD JB adapter, connect USB, then:
 
 ```bash
-make -C sw/doom upload UART_TTY=/dev/ttyUSB1
+make -C sw/doom upload UART_TTY=/dev/ttyUSB...
 ```
 
 Expected boot output on the serial terminal:
@@ -207,12 +207,6 @@ make -C sw/<app> clean all
 # Show memory layout (doom only)
 make -C sw/doom info
 make -C sw/doom check_layout
-
-# Debug via JTAG/OpenOCD
-openocd -f modules/neorv32/sw/openocd/neorv32.cfg
-riscv-none-elf-gdb sw/doom/main.elf \
-  -ex "target extended-remote localhost:3333" \
-  -ex "load" -ex "continue"
 ```
 
 ---
@@ -225,7 +219,3 @@ riscv-none-elf-gdb sw/doom/main.elf \
 - **[Petit FatFs](http://elm-chan.org/fsw/ff/00index_p.html)** Lightweight FAT filesystem for SD card access
 
 ---
-
-## License
-
-The DOOM engine source is subject to the [id Software DOOM Source License](https://github.com/id-Software/DOOM/blob/master/linuxdoom-1.10/README). All other project files in this repository are MIT licensed.
