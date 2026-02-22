@@ -105,7 +105,7 @@ https://github.com/user-attachments/assets/40dc531c-aafd-474a-8ac5-4f7e98fc5742
 ### 1. Prerequisites
 
 - **Vivado 2025.2**
-- **RISC-V toolchain**: `riscv-none-elf-gcc` (e.g., from [xPack](https://xpack.github.io/riscv-none-elf-gcc/))
+- **RISC-V toolchain**: `riscv-none-elf-gcc` (e.g., from [xPack](https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases))
 - A FAT-formatted SD card with `DOOM1.WAD` copied to the root directory
 
 ### 2. Clone the repository
