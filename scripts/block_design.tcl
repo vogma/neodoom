@@ -466,6 +466,10 @@ proc create_root_design { parentCell } {
     CONFIG.DCACHE_NUM_BLOCKS {256} \
     CONFIG.DMEM_EN {true} \
     CONFIG.DMEM_SIZE {8192} \
+    CONFIG.HPM_CNT_WIDTH {64} \
+    CONFIG.HPM_NUM_CNTS {13} \
+    CONFIG.ICACHE_EN {true} \
+    CONFIG.ICACHE_NUM_BLOCKS {256} \
     CONFIG.IMEM_EN {true} \
     CONFIG.IMEM_SIZE {65536} \
     CONFIG.IO_CLINT_EN {true} \
@@ -479,8 +483,20 @@ proc create_root_design { parentCell } {
     CONFIG.RISCV_ISA_C {true} \
     CONFIG.RISCV_ISA_E {false} \
     CONFIG.RISCV_ISA_M {true} \
+    CONFIG.RISCV_ISA_Zba {true} \
+    CONFIG.RISCV_ISA_Zbb {true} \
+    CONFIG.RISCV_ISA_Zbkb {true} \
+    CONFIG.RISCV_ISA_Zbkc {true} \
+    CONFIG.RISCV_ISA_Zbkx {true} \
+    CONFIG.RISCV_ISA_Zbs {true} \
+    CONFIG.RISCV_ISA_Zcb {true} \
     CONFIG.RISCV_ISA_Zfinx {true} \
+    CONFIG.RISCV_ISA_Zibi {true} \
     CONFIG.RISCV_ISA_Zicntr {true} \
+    CONFIG.RISCV_ISA_Zicond {true} \
+    CONFIG.RISCV_ISA_Zihpm {true} \
+    CONFIG.RISCV_ISA_Zimop {false} \
+    CONFIG.RISCV_ISA_Zknd {false} \
     CONFIG.XBUS_EN {true} \
   ] $neorv32_vivado_ip
 
@@ -570,7 +586,7 @@ proc create_root_design { parentCell } {
     CONFIG.Full_Threshold_Assert_Value {1700} \
     CONFIG.Input_Data_Width {32} \
     CONFIG.Input_Depth {2048} \
-    CONFIG.Output_Data_Width {16} \
+    CONFIG.Output_Data_Width {32} \
     CONFIG.Performance_Options {First_Word_Fall_Through} \
     CONFIG.Programmable_Full_Type {Single_Programmable_Full_Threshold_Constant} \
   ] $fifo_generator_0
