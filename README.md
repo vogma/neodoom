@@ -15,7 +15,7 @@ The [NEORV32](https://github.com/stnolting/neorv32) is a 32-bit RISC-V processor
 
 ---
 
-![DOOM running on Arty A7](img/doom.gif)
+https://github.com/user-attachments/assets/40dc531c-aafd-474a-8ac5-4f7e98fc5742
 
 ---
 
