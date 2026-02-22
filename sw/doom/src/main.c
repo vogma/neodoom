@@ -15,7 +15,8 @@ int main(void)
     neorv32_rte_setup();
 
     // Initialize UART for debug output
-    if (neorv32_uart0_available()) {
+    if (neorv32_uart0_available())
+    {
         neorv32_uart0_setup(BAUD_RATE, 0);
     }
 
@@ -29,17 +30,19 @@ int main(void)
     neorv32_uart0_printf("\n");
 
     // Check for GPIO (required for VGA swap)
-    if (neorv32_gpio_available() == 0) {
+    if (neorv32_gpio_available() == 0)
+    {
         neorv32_uart0_printf("ERROR: GPIO not available!\n");
         return 1;
     }
 
     neorv32_uart0_printf("Loading %s from SD card...\n", DOOM_WAD_FILE_NAME);
-    if (wad_sd_loader_load() != 0) {
+    if (wad_sd_loader_load() != 0)
+    {
         neorv32_uart0_printf("ERROR: failed to load IWAD from SD card.\n");
         return 1;
     }
-    neorv32_uart0_printf("IWAD ready: %s @0x%08x (%u bytes)\n",
+    neorv32_uart0_printf("IWAD ready: %s @0x%x (%u bytes)\n",
                          DOOM_WAD_FILE_NAME,
                          wad_sd_loader_get_addr(),
                          wad_sd_loader_get_size());
@@ -53,8 +56,9 @@ int main(void)
         "-nosound",
         "-nomusic",
         "-nosfx",
-        NULL
-    };
+        "-gfxmode",
+        "rgba8888",
+        NULL};
     int argc = 6;
 
     neorv32_uart0_printf("Starting DOOM...\n\n");
@@ -63,7 +67,8 @@ int main(void)
     doomgeneric_Create(argc, argv);
 
     // Main game loop
-    while (1) {
+    while (1)
+    {
         doomgeneric_Tick();
     }
 

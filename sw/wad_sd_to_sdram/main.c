@@ -73,7 +73,7 @@ int main(void) {
   // Switch to faster SPI clock after card + filesystem init.
   neorv32_spi_setup(SD_SPI_RUN_PRSC, SD_SPI_RUN_CDIV, 0, 0);
   neorv32_uart0_printf("SPI run clock:  %u Hz\n", neorv32_spi_get_clock_speed());
-  neorv32_uart0_printf("Copying %s -> 0x%08x (max %u bytes)\n",
+  neorv32_uart0_printf("Copying %s -> 0x%x (max %u bytes)\n",
     WAD_FILE_NAME, WAD_DST_ADDR, WAD_MAX_BYTES);
 
   volatile uint8_t *dst = (volatile uint8_t *)WAD_DST_ADDR;
@@ -124,7 +124,7 @@ int main(void) {
   neorv32_uart0_printf("Cycles:       %u:%u\n", (uint32_t)(cycles >> 32), (uint32_t)cycles);
   neorv32_uart0_printf("Time:         %u ms\n", (uint32_t)time_ms);
   neorv32_uart0_printf("Throughput:   %u KiB/s\n", (uint32_t)kib_per_s);
-  neorv32_uart0_printf("Header @dst:  0x%08x (%c%c%c%c)\n",
+  neorv32_uart0_printf("Header @dst:  0x%x (%c%c%c%c)\n",
     magic,
     (char)((magic >> 0) & 0xff),
     (char)((magic >> 8) & 0xff),

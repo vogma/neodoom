@@ -26,6 +26,11 @@ ARCHITECTURE sim OF tb_vga_controller IS
     CONSTANT V_MAX_LINE : NATURAL := 525;
     CONSTANT DRAIN_LINES_C : NATURAL := 5;
 
+    -- Letterbox constants (DOOM renders 640x400, centered in 640x480)
+    CONSTANT LETTERBOX_TOP : NATURAL := 40;
+    CONSTANT GAME_HEIGHT : NATURAL := 400;
+    CONSTANT GAME_BOTTOM : NATURAL := LETTERBOX_TOP + GAME_HEIGHT; -- 440
+
     SIGNAL pxl_clk : STD_LOGIC := '0';
     SIGNAL rst : STD_LOGIC := '1';
 
@@ -36,7 +41,7 @@ ARCHITECTURE sim OF tb_vga_controller IS
     SIGNAL vga_b : STD_LOGIC_VECTOR(3 DOWNTO 0);
 
     SIGNAL empty : STD_LOGIC := '0';
-    SIGNAL pxl_data : STD_LOGIC_VECTOR(15 DOWNTO 0) := (OTHERS => '0');
+    SIGNAL pxl_data : STD_LOGIC_VECTOR(31 DOWNTO 0) := (OTHERS => '0');
     SIGNAL rd_en : STD_LOGIC;
     SIGNAL rd_rst_busy : STD_LOGIC := '0';
 
@@ -97,7 +102,7 @@ BEGIN
                 rst <= '0';
                 empty <= '0';
                 rd_rst_busy <= '0';
-                pxl_data <= x"FFFF";
+                pxl_data <= x"00FFFFFF";
                 WAIT UNTIL rising_edge(pxl_clk);
 
                 FOR i IN 0 TO 10 LOOP
@@ -165,42 +170,51 @@ BEGIN
                 END LOOP;
                 check(vs_went_low, "vsync should go low within one frame");
 
-            ELSIF run("test_rgb565_mapping") THEN
+            ELSIF run("test_rgb888_mapping") THEN
                 reset_and_start;
                 empty <= '0';
                 rd_rst_busy <= '0';
 
-                pxl_data <= x"F800";
-                WAIT UNTIL rising_edge(pxl_clk);
-                check_equal(vga_r, STD_LOGIC_VECTOR'(x"F"), "F800 red");
-                check_equal(vga_g, STD_LOGIC_VECTOR'(x"0"), "F800 green");
-                check_equal(vga_b, STD_LOGIC_VECTOR'(x"0"), "F800 blue");
+                -- Advance to game region (line 40) to test RGB mapping
+                -- Skip top letterbox lines where output is always black
+                FOR i IN 0 TO LETTERBOX_TOP * H_TOTAL_LINE - 1 LOOP
+                    WAIT UNTIL rising_edge(pxl_clk);
+                END LOOP;
 
-                pxl_data <= x"07E0";
+                -- Now in game region, test RGB888 -> RGB444 conversion
+                -- Format: 0x00RRGGBB, we take bits [23:20], [15:12], [7:4]
+                pxl_data <= x"00FF0000"; -- Pure red
                 WAIT UNTIL rising_edge(pxl_clk);
-                check_equal(vga_r, STD_LOGIC_VECTOR'(x"0"), "07E0 red");
-                check_equal(vga_g, STD_LOGIC_VECTOR'(x"F"), "07E0 green");
-                check_equal(vga_b, STD_LOGIC_VECTOR'(x"0"), "07E0 blue");
+                check_equal(vga_r, STD_LOGIC_VECTOR'(x"F"), "00FF0000 red");
+                check_equal(vga_g, STD_LOGIC_VECTOR'(x"0"), "00FF0000 green");
+                check_equal(vga_b, STD_LOGIC_VECTOR'(x"0"), "00FF0000 blue");
 
-                pxl_data <= x"001F";
+                pxl_data <= x"0000FF00"; -- Pure green
                 WAIT UNTIL rising_edge(pxl_clk);
-                check_equal(vga_r, STD_LOGIC_VECTOR'(x"0"), "001F red");
-                check_equal(vga_g, STD_LOGIC_VECTOR'(x"0"), "001F green");
-                check_equal(vga_b, STD_LOGIC_VECTOR'(x"F"), "001F blue");
+                check_equal(vga_r, STD_LOGIC_VECTOR'(x"0"), "0000FF00 red");
+                check_equal(vga_g, STD_LOGIC_VECTOR'(x"F"), "0000FF00 green");
+                check_equal(vga_b, STD_LOGIC_VECTOR'(x"0"), "0000FF00 blue");
 
-                pxl_data <= x"FFFF";
+                pxl_data <= x"000000FF"; -- Pure blue
                 WAIT UNTIL rising_edge(pxl_clk);
-                check_equal(vga_r, STD_LOGIC_VECTOR'(x"F"), "FFFF red");
-                check_equal(vga_g, STD_LOGIC_VECTOR'(x"F"), "FFFF green");
-                check_equal(vga_b, STD_LOGIC_VECTOR'(x"F"), "FFFF blue");
+                check_equal(vga_r, STD_LOGIC_VECTOR'(x"0"), "000000FF red");
+                check_equal(vga_g, STD_LOGIC_VECTOR'(x"0"), "000000FF green");
+                check_equal(vga_b, STD_LOGIC_VECTOR'(x"F"), "000000FF blue");
+
+                pxl_data <= x"00FFFFFF"; -- White
+                WAIT UNTIL rising_edge(pxl_clk);
+                check_equal(vga_r, STD_LOGIC_VECTOR'(x"F"), "00FFFFFF red");
+                check_equal(vga_g, STD_LOGIC_VECTOR'(x"F"), "00FFFFFF green");
+                check_equal(vga_b, STD_LOGIC_VECTOR'(x"F"), "00FFFFFF blue");
 
             ELSIF run("test_blanking") THEN
                 reset_and_start;
                 empty <= '0';
                 rd_rst_busy <= '0';
-                pxl_data <= x"FFFF";
+                pxl_data <= x"00FFFFFF";
 
-                FOR i IN 0 TO FRAME_WIDTH + 10 LOOP
+                -- Advance to game region first, then past active horizontal
+                FOR i IN 0 TO LETTERBOX_TOP * H_TOTAL_LINE + FRAME_WIDTH + 10 LOOP
                     WAIT UNTIL rising_edge(pxl_clk);
                 END LOOP;
 
@@ -214,6 +228,11 @@ BEGIN
                 empty <= '0';
                 rd_rst_busy <= '0';
 
+                -- Advance to game region (line 40+) where rd_en is active
+                FOR i IN 0 TO LETTERBOX_TOP * H_TOTAL_LINE - 1 LOOP
+                    WAIT UNTIL rising_edge(pxl_clk);
+                END LOOP;
+
                 WAIT UNTIL falling_edge(vga_hs);
                 rd_count := 0;
                 FOR i IN 0 TO H_TOTAL_LINE - 1 LOOP
@@ -223,14 +242,20 @@ BEGIN
                     END IF;
                 END LOOP;
 
-                check_equal(rd_count, FRAME_WIDTH, "rd_en must assert 640 times per line");
+                check_equal(rd_count, FRAME_WIDTH, "rd_en must assert 640 times per game line");
 
             ELSIF run("test_rd_en_gating_empty_and_busy") THEN
                 reset_and_start;
                 empty <= '0';
                 rd_rst_busy <= '0';
+
+                -- Advance to game region (line 40+) where rd_en can be active
+                FOR i IN 0 TO LETTERBOX_TOP * H_TOTAL_LINE - 1 LOOP
+                    WAIT UNTIL rising_edge(pxl_clk);
+                END LOOP;
+
                 WAIT UNTIL rising_edge(pxl_clk);
-                check_equal(rd_en, '1', "rd_en should assert when active and data present");
+                check_equal(rd_en, '1', "rd_en should assert when in game region and data present");
 
                 empty <= '1';
                 WAIT UNTIL rising_edge(pxl_clk);
@@ -249,11 +274,16 @@ BEGIN
                 reset_and_start;
                 check_equal(underrun, '0', "underrun should start low");
 
+                -- Advance to game region (line 40+) where underrun can trigger
+                FOR i IN 0 TO LETTERBOX_TOP * H_TOTAL_LINE - 1 LOOP
+                    WAIT UNTIL rising_edge(pxl_clk);
+                END LOOP;
+
                 empty <= '1';
                 rd_rst_busy <= '0';
                 WAIT UNTIL rising_edge(pxl_clk);
                 WAIT UNTIL rising_edge(pxl_clk);
-                check_equal(underrun, '1', "underrun should latch high on active-video empty");
+                check_equal(underrun, '1', "underrun should latch high on game-region empty");
 
                 empty <= '0';
                 WAIT UNTIL rising_edge(pxl_clk);
@@ -306,14 +336,18 @@ BEGIN
                             "in_vblank must be high for full vblank interval");
                 check_equal(in_vblank, '0', "in_vblank must deassert at line 0");
 
-            ELSIF run("test_vblank_drain_fifo") THEN
+            ELSIF run("test_bottom_letterbox_drain_fifo") THEN
                 reset_and_start;
                 empty <= '0';
                 rd_rst_busy <= '0';
 
-                WAIT UNTIL rising_edge(pxl_clk) AND in_vblank = '1';
+                -- Advance to bottom letterbox drain window (line 440)
+                FOR i IN 0 TO GAME_BOTTOM * H_TOTAL_LINE - 1 LOOP
+                    WAIT UNTIL rising_edge(pxl_clk);
+                END LOOP;
+
                 WAIT UNTIL rising_edge(pxl_clk);
-                check_equal(rd_en, '1', "rd_en must assert while draining and data is present");
+                check_equal(rd_en, '1', "rd_en must assert while draining in bottom letterbox");
 
                 empty <= '1';
                 WAIT UNTIL rising_edge(pxl_clk);
@@ -323,28 +357,81 @@ BEGIN
                 WAIT UNTIL rising_edge(pxl_clk);
                 check_equal(rd_en, '1', "rd_en must reassert when data returns in drain window");
 
-            ELSIF run("test_vblank_drain_limited_to_n_lines") THEN
+            ELSIF run("test_drain_limited_to_n_lines") THEN
                 reset_and_start;
                 empty <= '0';
                 rd_rst_busy <= '0';
 
-                WAIT UNTIL rising_edge(pxl_clk) AND in_vblank = '1';
+                -- Advance to bottom letterbox drain window (line 440)
+                FOR i IN 0 TO GAME_BOTTOM * H_TOTAL_LINE - 1 LOOP
+                    WAIT UNTIL rising_edge(pxl_clk);
+                END LOOP;
+
+                -- Skip past drain window (5 lines)
                 FOR i IN 1 TO DRAIN_LINES_C * H_TOTAL_LINE LOOP
                     WAIT UNTIL rising_edge(pxl_clk);
                 END LOOP;
 
-                check_equal(in_vblank, '1', "still in vblank after drain window");
+                -- Now at line 445, still in bottom letterbox but past drain window
+                check_equal(in_vblank, '0', "still in active region after drain window");
                 check_equal(rd_en, '0', "rd_en must deassert after drain window expires");
 
-            ELSIF run("test_vblank_drain_no_underrun") THEN
+            ELSIF run("test_drain_no_underrun") THEN
                 reset_and_start;
-                WAIT UNTIL rising_edge(pxl_clk) AND in_vblank = '1';
+
+                -- Advance to bottom letterbox drain window (line 440)
+                FOR i IN 0 TO GAME_BOTTOM * H_TOTAL_LINE - 1 LOOP
+                    WAIT UNTIL rising_edge(pxl_clk);
+                END LOOP;
 
                 empty <= '1';
                 rd_rst_busy <= '0';
                 WAIT UNTIL rising_edge(pxl_clk);
                 WAIT UNTIL rising_edge(pxl_clk);
-                check_equal(underrun, '0', "underrun must remain low during vblank drain");
+                check_equal(underrun, '0', "underrun must remain low during drain window");
+
+            ELSIF run("test_top_letterbox_no_rd_en") THEN
+                -- Verify no FIFO reads during top letterbox (lines 0-39)
+                reset_and_start;
+                empty <= '0';
+                rd_rst_busy <= '0';
+
+                -- Check first line of top letterbox
+                rd_count := 0;
+                FOR i IN 0 TO H_TOTAL_LINE - 1 LOOP
+                    WAIT UNTIL rising_edge(pxl_clk);
+                    IF rd_en = '1' THEN
+                        rd_count := rd_count + 1;
+                    END IF;
+                END LOOP;
+                check_equal(rd_count, 0, "rd_en must not assert during top letterbox");
+
+            ELSIF run("test_top_letterbox_no_underrun") THEN
+                -- Verify underrun does NOT latch during top letterbox empty
+                reset_and_start;
+                empty <= '1';
+                rd_rst_busy <= '0';
+
+                -- Stay in top letterbox (lines 0-39) with empty FIFO
+                FOR i IN 0 TO 100 LOOP
+                    WAIT UNTIL rising_edge(pxl_clk);
+                    check_equal(underrun, '0', "underrun must not latch in top letterbox");
+                END LOOP;
+
+            ELSIF run("test_letterbox_outputs_black") THEN
+                -- Verify top letterbox outputs black even with valid pixel data
+                reset_and_start;
+                empty <= '0';
+                rd_rst_busy <= '0';
+                pxl_data <= x"00FFFFFF"; -- White pixel data
+
+                -- Check output during top letterbox
+                FOR i IN 0 TO 10 LOOP
+                    WAIT UNTIL rising_edge(pxl_clk);
+                    check_equal(vga_r, STD_LOGIC_VECTOR'(x"0"), "red must be black in top letterbox");
+                    check_equal(vga_g, STD_LOGIC_VECTOR'(x"0"), "green must be black in top letterbox");
+                    check_equal(vga_b, STD_LOGIC_VECTOR'(x"0"), "blue must be black in top letterbox");
+                END LOOP;
             END IF;
         END LOOP;
 

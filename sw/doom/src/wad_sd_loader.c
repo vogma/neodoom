@@ -148,7 +148,7 @@ int wad_sd_loader_load(void)
 
     magic = *(volatile uint32_t *)DOOM_WAD_DST_ADDR;
     if (magic != 0x44415749u) {
-        neorv32_uart0_printf("ERROR: invalid IWAD header 0x%08x.\n", magic);
+        neorv32_uart0_printf("ERROR: invalid IWAD header 0x%x.\n", magic);
         return -7;
     }
 
