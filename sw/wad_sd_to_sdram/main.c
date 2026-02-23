@@ -51,6 +51,23 @@ int main(void) {
   neorv32_uart0_printf("\nWAD SD->SDRAM loader\n");
   neorv32_uart0_printf("CPU clock: %u Hz\n", neorv32_sysinfo_get_clk());
 
+  // Check if WAD is already present in SDRAM (survives soft reset).
+  {
+    volatile uint32_t *hdr = (volatile uint32_t *)WAD_DST_ADDR;
+    uint32_t magic = hdr[0];
+    if (magic == 0x44415749u) { // "IWAD"
+      uint32_t numlumps    = hdr[1];
+      uint32_t infotableofs = hdr[2];
+      uint32_t size = infotableofs + numlumps * 16u;
+      if (size >= 12u && size <= WAD_MAX_BYTES) {
+        neorv32_uart0_printf("IWAD already in SDRAM: %u bytes @ 0x%x\n",
+                             size, WAD_DST_ADDR);
+        neorv32_uart0_printf("Skipping SD card load.\n");
+        return 0;
+      }
+    }
+  }
+
   if (setup_spi_for_sd() != 0) {
     neorv32_uart0_printf("ERROR: SPI not synthesized.\n");
     return 1;

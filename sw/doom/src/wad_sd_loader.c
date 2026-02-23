@@ -82,6 +82,24 @@ int wad_sd_loader_load(void)
         return 0;
     }
 
+    // Check if WAD is already present in SDRAM (survives soft reset).
+    {
+        volatile uint32_t *hdr = (volatile uint32_t *)DOOM_WAD_DST_ADDR;
+        uint32_t magic = hdr[0];
+        if (magic == 0x44415749u) { // "IWAD"
+            uint32_t numlumps    = hdr[1];
+            uint32_t infotableofs = hdr[2];
+            uint32_t size = infotableofs + numlumps * 16u;
+            if (size >= 12u && size <= DOOM_WAD_MAX_BYTES) {
+                wad_size_bytes = size;
+                wad_ready = 1;
+                neorv32_uart0_printf("IWAD already in SDRAM: %u bytes @ 0x%x\n",
+                                     wad_size_bytes, DOOM_WAD_DST_ADDR);
+                return 0;
+            }
+        }
+    }
+
     if (neorv32_spi_available() == 0) {
         neorv32_uart0_printf("ERROR: SPI not synthesized.\n");
         return -1;

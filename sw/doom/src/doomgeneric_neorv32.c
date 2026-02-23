@@ -16,10 +16,61 @@ static uint64_t start_cycles;
 
 // Frame statistics
 static uint32_t frame_count = 0;
-static uint64_t last_stats_time = 0;
 
 // HPM state
 static uint32_t hpm_num = 0;
+
+// Per-phase profiling accumulators (summed over 60 frames)
+#define PROF_PHASE_LOGIC  0
+#define PROF_PHASE_RENDER 1
+#define PROF_PHASE_FBCONV 2
+
+typedef struct {
+    uint64_t cycles;
+    uint64_t loads;
+    uint64_t stores;
+    uint64_t lsu_wait;
+    uint64_t alu_wait;
+    uint64_t disp_wait;
+} phase_stats_t;
+
+static phase_stats_t prof[3]; // logic, render, fbconv
+
+// Inhibit mask for HPM3-HPM8 only (leave MCYCLE/MINSTRET running)
+#define HPM_INHIBIT_MASK ((1<<3)|(1<<4)|(1<<5)|(1<<6)|(1<<7)|(1<<8))
+
+// Stop HPM counters, read & accumulate into phase, reset, restart.
+// Never touches MCYCLE/MINSTRET — those stay monotonic for timing APIs.
+void prof_phase_end(int phase)
+{
+    if (hpm_num == 0) return;
+    neorv32_cpu_csr_set(CSR_MCOUNTINHIBIT, HPM_INHIBIT_MASK);
+
+    // Read counters (low word only — single phase fits in 32 bits)
+    uint32_t cyc = neorv32_cpu_csr_read(CSR_MHPMCOUNTER3);
+    uint32_t ld  = neorv32_cpu_csr_read(CSR_MHPMCOUNTER4);
+    uint32_t st  = neorv32_cpu_csr_read(CSR_MHPMCOUNTER5);
+    uint32_t lsu = neorv32_cpu_csr_read(CSR_MHPMCOUNTER6);
+    uint32_t alu = neorv32_cpu_csr_read(CSR_MHPMCOUNTER7);
+    uint32_t dis = neorv32_cpu_csr_read(CSR_MHPMCOUNTER8);
+
+    prof[phase].cycles    += cyc;
+    prof[phase].loads     += ld;
+    prof[phase].stores    += st;
+    prof[phase].lsu_wait  += lsu;
+    prof[phase].alu_wait  += alu;
+    prof[phase].disp_wait += dis;
+
+    // Reset HPM counters only
+    neorv32_cpu_csr_write(CSR_MHPMCOUNTER3, 0);
+    neorv32_cpu_csr_write(CSR_MHPMCOUNTER4, 0);
+    neorv32_cpu_csr_write(CSR_MHPMCOUNTER5, 0);
+    neorv32_cpu_csr_write(CSR_MHPMCOUNTER6, 0);
+    neorv32_cpu_csr_write(CSR_MHPMCOUNTER7, 0);
+    neorv32_cpu_csr_write(CSR_MHPMCOUNTER8, 0);
+
+    neorv32_cpu_csr_clr(CSR_MCOUNTINHIBIT, HPM_INHIBIT_MASK);
+}
 
 // =============================================================================
 // DG_Init - Initialize platform
@@ -29,7 +80,6 @@ void DG_Init(void)
     // Get clock frequency for timing
     clk_hz = neorv32_sysinfo_get_clk();
     start_cycles = neorv32_cpu_get_cycle();
-    last_stats_time = start_cycles;
 
     // Initialize VGA backend
     neorv32_vga_init();
@@ -40,34 +90,26 @@ void DG_Init(void)
     if ((neorv32_cpu_csr_read(CSR_MXISA) & (1 << CSR_MXISA_ZIHPM))) {
         hpm_num = neorv32_cpu_hpm_get_num_counters();
     }
-    if (hpm_num > 0) {
-        neorv32_uart0_printf("HPM: %u counters available\n", hpm_num);
+    if (hpm_num >= 6) {
+        neorv32_uart0_printf("HPM: %u counters available, using 6 for profiling\n", hpm_num);
 
-        // Stop all counters
-        neorv32_cpu_csr_write(CSR_MCOUNTINHIBIT, -1);
+        // Stop HPM counters (leave MCYCLE/MINSTRET running)
+        neorv32_cpu_csr_set(CSR_MCOUNTINHIBIT, HPM_INHIBIT_MASK);
 
-        // Clear base counters
-        if ((neorv32_cpu_csr_read(CSR_MXISA) & (1 << CSR_MXISA_ZICNTR))) {
-            neorv32_cpu_csr_write(CSR_MCYCLE, 0);
-            neorv32_cpu_csr_write(CSR_MCYCLEH, 0);
-            neorv32_cpu_csr_write(CSR_MINSTRET, 0);
-            neorv32_cpu_csr_write(CSR_MINSTRETH, 0);
-        }
+        // Configure HPM3-HPM8 for per-phase profiling
+        // HPM3=cycles  HPM4=loads  HPM5=stores  HPM6=lsu_wait  HPM7=alu_wait  HPM8=disp_wait
+        neorv32_cpu_csr_write(CSR_MHPMCOUNTER3, 0); neorv32_cpu_csr_write(CSR_MHPMCOUNTER3H, 0); neorv32_cpu_csr_write(CSR_MHPMEVENT3, 1 << HPMCNT_EVENT_CY);
+        neorv32_cpu_csr_write(CSR_MHPMCOUNTER4, 0); neorv32_cpu_csr_write(CSR_MHPMCOUNTER4H, 0); neorv32_cpu_csr_write(CSR_MHPMEVENT4, 1 << HPMCNT_EVENT_LOAD);
+        neorv32_cpu_csr_write(CSR_MHPMCOUNTER5, 0); neorv32_cpu_csr_write(CSR_MHPMCOUNTER5H, 0); neorv32_cpu_csr_write(CSR_MHPMEVENT5, 1 << HPMCNT_EVENT_STORE);
+        neorv32_cpu_csr_write(CSR_MHPMCOUNTER6, 0); neorv32_cpu_csr_write(CSR_MHPMCOUNTER6H, 0); neorv32_cpu_csr_write(CSR_MHPMEVENT6, 1 << HPMCNT_EVENT_WAIT_LSU);
+        neorv32_cpu_csr_write(CSR_MHPMCOUNTER7, 0); neorv32_cpu_csr_write(CSR_MHPMCOUNTER7H, 0); neorv32_cpu_csr_write(CSR_MHPMEVENT7, 1 << HPMCNT_EVENT_WAIT_ALU);
+        neorv32_cpu_csr_write(CSR_MHPMCOUNTER8, 0); neorv32_cpu_csr_write(CSR_MHPMCOUNTER8H, 0); neorv32_cpu_csr_write(CSR_MHPMEVENT8, 1 << HPMCNT_EVENT_WAIT_DIS);
 
-        // Clear and configure HPM counters
-        if (hpm_num > 0) { neorv32_cpu_csr_write(CSR_MHPMCOUNTER3,  0); neorv32_cpu_csr_write(CSR_MHPMCOUNTER3H,  0); neorv32_cpu_csr_write(CSR_MHPMEVENT3,  1 << HPMCNT_EVENT_COMPR);    }
-        if (hpm_num > 1) { neorv32_cpu_csr_write(CSR_MHPMCOUNTER4,  0); neorv32_cpu_csr_write(CSR_MHPMCOUNTER4H,  0); neorv32_cpu_csr_write(CSR_MHPMEVENT4,  1 << HPMCNT_EVENT_WAIT_DIS); }
-        if (hpm_num > 2) { neorv32_cpu_csr_write(CSR_MHPMCOUNTER5,  0); neorv32_cpu_csr_write(CSR_MHPMCOUNTER5H,  0); neorv32_cpu_csr_write(CSR_MHPMEVENT5,  1 << HPMCNT_EVENT_WAIT_ALU); }
-        if (hpm_num > 3) { neorv32_cpu_csr_write(CSR_MHPMCOUNTER6,  0); neorv32_cpu_csr_write(CSR_MHPMCOUNTER6H,  0); neorv32_cpu_csr_write(CSR_MHPMEVENT6,  1 << HPMCNT_EVENT_BRANCH);   }
-        if (hpm_num > 4) { neorv32_cpu_csr_write(CSR_MHPMCOUNTER7,  0); neorv32_cpu_csr_write(CSR_MHPMCOUNTER7H,  0); neorv32_cpu_csr_write(CSR_MHPMEVENT7,  1 << HPMCNT_EVENT_CTRLFLOW); }
-        if (hpm_num > 5) { neorv32_cpu_csr_write(CSR_MHPMCOUNTER8,  0); neorv32_cpu_csr_write(CSR_MHPMCOUNTER8H,  0); neorv32_cpu_csr_write(CSR_MHPMEVENT8,  1 << HPMCNT_EVENT_LOAD);     }
-        if (hpm_num > 6) { neorv32_cpu_csr_write(CSR_MHPMCOUNTER9,  0); neorv32_cpu_csr_write(CSR_MHPMCOUNTER9H,  0); neorv32_cpu_csr_write(CSR_MHPMEVENT9,  1 << HPMCNT_EVENT_STORE);    }
-        if (hpm_num > 7) { neorv32_cpu_csr_write(CSR_MHPMCOUNTER10, 0); neorv32_cpu_csr_write(CSR_MHPMCOUNTER10H, 0); neorv32_cpu_csr_write(CSR_MHPMEVENT10, 1 << HPMCNT_EVENT_WAIT_LSU); }
-
-        // Enable all counters
-        neorv32_cpu_csr_write(CSR_MCOUNTINHIBIT, 0);
+        // Start HPM counters
+        neorv32_cpu_csr_clr(CSR_MCOUNTINHIBIT, HPM_INHIBIT_MASK);
     } else {
-        neorv32_uart0_printf("HPM: not available\n");
+        neorv32_uart0_printf("HPM: %u counters (need 6), profiling disabled\n", hpm_num);
+        hpm_num = 0;
     }
 
     neorv32_uart0_printf("DG_Init: platform ready, clk=%u Hz\n", clk_hz);
@@ -82,135 +124,81 @@ void DG_Init(void)
 // =============================================================================
 void DG_DrawFrame(void)
 {
-    // Get back buffer address
-    // volatile uint16_t *fb = (volatile uint16_t *)neorv32_vga_get_back_buffer();
-    // const pixel_t *src = DG_ScreenBuffer;
-
-    // --- Top letterbox: 40 lines of black ---
-    // volatile uint32_t *fb32 = (volatile uint32_t *)fb;
-    // for (int i = 0; i < (640 * 40) / 2; i++)
-    // {
-    //     fb32[i] = 0;
-    // }
-    // fb += 640 * 40;
-
-    // --- Copy 640x400 frame with RGB888 -> RGB565 conversion ---
-    // for (int y = 0; y < DOOMGENERIC_RESY; y++)
-    // {
-    //     for (int x = 0; x < DOOMGENERIC_RESX; x++)
-    //     {
-    //         // Extract RGB from 32-bit pixel (format: 0x00RRGGBB)
-    //         uint32_t pixel = *src++;
-    //         uint32_t r = (pixel >> 16) & 0xFF;
-    //         uint32_t g = (pixel >> 8) & 0xFF;
-    //         uint32_t b = pixel & 0xFF;
-
-    //         // Convert to RGB565: RRRRRGGGGGGBBBBB
-    //         uint16_t rgb565 = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
-    //         *fb++ = rgb565;
-    //     }
-    // }
-
-    // --- Bottom letterbox: 40 lines of black ---
-    // fb32 = (volatile uint32_t *)fb;
-    // for (int i = 0; i < (640 * 40) / 2; i++)
-    // {
-    //     fb32[i] = 0;
-    // }
-
-    // Request buffer swap
+    // Buffer swap (included in fbconv phase)
     neorv32_vga_swap();
-    DG_ScreenBuffer = (pixel_t *)neorv32_vga_get_back_buffer(); //change doom internal frame buffer
 
-    // Update statistics
+    // End fbconv phase — captures cmap_to_fb + swap
+    prof_phase_end(PROF_PHASE_FBCONV);
+
+    DG_ScreenBuffer = (pixel_t *)neorv32_vga_get_back_buffer();
+
     frame_count++;
 
-    // Print stats every 60 frames
     if ((frame_count % 60) == 0)
     {
-        // Print HPM counters (delta since last stats print)
-        if (hpm_num > 0) {
-            // Stop counters to get consistent snapshot
-            neorv32_cpu_csr_write(CSR_MCOUNTINHIBIT, -1);
+        // Compute totals across phases
+        uint64_t tot_cycles = prof[0].cycles + prof[1].cycles + prof[2].cycles;
+        uint64_t tot_loads  = prof[0].loads  + prof[1].loads  + prof[2].loads;
+        uint64_t tot_stores = prof[0].stores + prof[1].stores + prof[2].stores;
+        uint64_t tot_lsu    = prof[0].lsu_wait  + prof[1].lsu_wait  + prof[2].lsu_wait;
+        uint64_t tot_alu    = prof[0].alu_wait  + prof[1].alu_wait  + prof[2].alu_wait;
+        uint64_t tot_disp   = prof[0].disp_wait + prof[1].disp_wait + prof[2].disp_wait;
 
-            // Read full 64-bit counter values
-            uint64_t cycles  = 0, instret = 0;
-            uint64_t hpm[8]  = {0};
-
-            if ((neorv32_cpu_csr_read(CSR_MXISA) & (1 << CSR_MXISA_ZICNTR))) {
-                cycles  = ((uint64_t)neorv32_cpu_csr_read(CSR_MCYCLEH)   << 32) | (uint32_t)neorv32_cpu_csr_read(CSR_MCYCLE);
-                instret = ((uint64_t)neorv32_cpu_csr_read(CSR_MINSTRETH) << 32) | (uint32_t)neorv32_cpu_csr_read(CSR_MINSTRET);
-            }
-            if (hpm_num > 0) hpm[0] = ((uint64_t)neorv32_cpu_csr_read(CSR_MHPMCOUNTER3H)  << 32) | (uint32_t)neorv32_cpu_csr_read(CSR_MHPMCOUNTER3);
-            if (hpm_num > 1) hpm[1] = ((uint64_t)neorv32_cpu_csr_read(CSR_MHPMCOUNTER4H)  << 32) | (uint32_t)neorv32_cpu_csr_read(CSR_MHPMCOUNTER4);
-            if (hpm_num > 2) hpm[2] = ((uint64_t)neorv32_cpu_csr_read(CSR_MHPMCOUNTER5H)  << 32) | (uint32_t)neorv32_cpu_csr_read(CSR_MHPMCOUNTER5);
-            if (hpm_num > 3) hpm[3] = ((uint64_t)neorv32_cpu_csr_read(CSR_MHPMCOUNTER6H)  << 32) | (uint32_t)neorv32_cpu_csr_read(CSR_MHPMCOUNTER6);
-            if (hpm_num > 4) hpm[4] = ((uint64_t)neorv32_cpu_csr_read(CSR_MHPMCOUNTER7H)  << 32) | (uint32_t)neorv32_cpu_csr_read(CSR_MHPMCOUNTER7);
-            if (hpm_num > 5) hpm[5] = ((uint64_t)neorv32_cpu_csr_read(CSR_MHPMCOUNTER8H)  << 32) | (uint32_t)neorv32_cpu_csr_read(CSR_MHPMCOUNTER8);
-            if (hpm_num > 6) hpm[6] = ((uint64_t)neorv32_cpu_csr_read(CSR_MHPMCOUNTER9H)  << 32) | (uint32_t)neorv32_cpu_csr_read(CSR_MHPMCOUNTER9);
-            if (hpm_num > 7) hpm[7] = ((uint64_t)neorv32_cpu_csr_read(CSR_MHPMCOUNTER10H) << 32) | (uint32_t)neorv32_cpu_csr_read(CSR_MHPMCOUNTER10);
-
-            // Compute FPS from cycle count (cycles = exact delta for this interval)
-            uint32_t elapsed_ms = (uint32_t)((cycles * 1000ULL) / clk_hz);
-            uint32_t fps_x10 = (elapsed_ms > 0) ? (60 * 10000) / elapsed_ms : 0;
-
-            // Print values as millions (M) and percentages of cycles
-            uint32_t cyc_m = (uint32_t)(cycles / 1000000ULL);
-            uint32_t ins_m = (uint32_t)(instret / 1000000ULL);
-            uint32_t cpi_x10 = (instret > 0) ? (uint32_t)((cycles * 10ULL) / instret) : 0;
-
-            neorv32_uart0_printf("frame=%u fps=%u.%u\n",
-                frame_count, fps_x10 / 10, fps_x10 % 10);
-            neorv32_uart0_printf("  cycles=%uM instret=%uM cpi=%u.%u\n",
-                cyc_m, ins_m, cpi_x10 / 10, cpi_x10 % 10);
-
-            // Compute percentages of total cycles (x10 for one decimal place)
-            #define HPM_PCT(val) (uint32_t)(cycles > 0 ? ((val) * 1000ULL / cycles) : 0)
-
-            if (hpm_num > 0) neorv32_uart0_printf("  compressed=%uM",  (uint32_t)(hpm[0] / 1000000ULL));
-            if (hpm_num > 1) neorv32_uart0_printf(" disp_wait=%uM(%u.%u%%)", (uint32_t)(hpm[1] / 1000000ULL), HPM_PCT(hpm[1]) / 10, HPM_PCT(hpm[1]) % 10);
-            if (hpm_num > 2) neorv32_uart0_printf(" alu_wait=%uM(%u.%u%%)",  (uint32_t)(hpm[2] / 1000000ULL), HPM_PCT(hpm[2]) / 10, HPM_PCT(hpm[2]) % 10);
-            if (hpm_num > 0) neorv32_uart0_printf("\n");
-
-            if (hpm_num > 3) neorv32_uart0_printf("  branch=%uM",     (uint32_t)(hpm[3] / 1000000ULL));
-            if (hpm_num > 4) neorv32_uart0_printf(" ctrlflow=%uM",    (uint32_t)(hpm[4] / 1000000ULL));
-            if (hpm_num > 3) neorv32_uart0_printf("\n");
-
-            if (hpm_num > 5) neorv32_uart0_printf("  loads=%uM",      (uint32_t)(hpm[5] / 1000000ULL));
-            if (hpm_num > 6) neorv32_uart0_printf(" stores=%uM",      (uint32_t)(hpm[6] / 1000000ULL));
-            if (hpm_num > 7) neorv32_uart0_printf(" lsu_wait=%uM(%u.%u%%)",  (uint32_t)(hpm[7] / 1000000ULL), HPM_PCT(hpm[7]) / 10, HPM_PCT(hpm[7]) % 10);
-            if (hpm_num > 5) neorv32_uart0_printf("\n");
-
-            #undef HPM_PCT
-
-            // Reset all counters for next interval
-            if ((neorv32_cpu_csr_read(CSR_MXISA) & (1 << CSR_MXISA_ZICNTR))) {
-                neorv32_cpu_csr_write(CSR_MCYCLE, 0);
-                neorv32_cpu_csr_write(CSR_MCYCLEH, 0);
-                neorv32_cpu_csr_write(CSR_MINSTRET, 0);
-                neorv32_cpu_csr_write(CSR_MINSTRETH, 0);
-            }
-            if (hpm_num > 0) { neorv32_cpu_csr_write(CSR_MHPMCOUNTER3,  0); neorv32_cpu_csr_write(CSR_MHPMCOUNTER3H,  0); }
-            if (hpm_num > 1) { neorv32_cpu_csr_write(CSR_MHPMCOUNTER4,  0); neorv32_cpu_csr_write(CSR_MHPMCOUNTER4H,  0); }
-            if (hpm_num > 2) { neorv32_cpu_csr_write(CSR_MHPMCOUNTER5,  0); neorv32_cpu_csr_write(CSR_MHPMCOUNTER5H,  0); }
-            if (hpm_num > 3) { neorv32_cpu_csr_write(CSR_MHPMCOUNTER6,  0); neorv32_cpu_csr_write(CSR_MHPMCOUNTER6H,  0); }
-            if (hpm_num > 4) { neorv32_cpu_csr_write(CSR_MHPMCOUNTER7,  0); neorv32_cpu_csr_write(CSR_MHPMCOUNTER7H,  0); }
-            if (hpm_num > 5) { neorv32_cpu_csr_write(CSR_MHPMCOUNTER8,  0); neorv32_cpu_csr_write(CSR_MHPMCOUNTER8H,  0); }
-            if (hpm_num > 6) { neorv32_cpu_csr_write(CSR_MHPMCOUNTER9,  0); neorv32_cpu_csr_write(CSR_MHPMCOUNTER9H,  0); }
-            if (hpm_num > 7) { neorv32_cpu_csr_write(CSR_MHPMCOUNTER10, 0); neorv32_cpu_csr_write(CSR_MHPMCOUNTER10H, 0); }
-
-            // Re-enable all counters
-            neorv32_cpu_csr_write(CSR_MCOUNTINHIBIT, 0);
-        } else {
-            // Fallback FPS without HPM
-            uint64_t now = neorv32_cpu_get_cycle();
-            uint64_t elapsed = now - last_stats_time;
-            uint32_t elapsed_ms = (uint32_t)((elapsed * 1000ULL) / clk_hz);
-            uint32_t fps_x10 = (elapsed_ms > 0) ? (60 * 10000) / elapsed_ms : 0;
-            neorv32_uart0_printf("frame=%u fps=%u.%u\n",
-                                 frame_count, fps_x10 / 10, fps_x10 % 10);
-            last_stats_time = now;
+        // FPS from total cycles
+        uint32_t fps_x10 = 0;
+        if (tot_cycles > 0) {
+            uint32_t elapsed_ms = (uint32_t)((tot_cycles * 1000ULL) / (60 * (uint64_t)clk_hz));
+            fps_x10 = (elapsed_ms > 0) ? 10000 / elapsed_ms : 0;
         }
+
+        // Helper: permille of total cycles (for phase %)
+        #define PCT_OF_TOTAL(v) (uint32_t)(tot_cycles > 0 ? ((v) * 1000ULL / tot_cycles) : 0)
+        // Helper: permille of own cycles (for occupancy within a phase)
+        #define OCCUPANCY(val, cyc) (uint32_t)((cyc) > 0 ? ((val) * 1000ULL / (cyc)) : 0)
+
+        neorv32_uart0_printf("--- frame %u  fps=%u.%u  avg/frame over 60 ---\n",
+            frame_count, fps_x10 / 10, fps_x10 % 10);
+        neorv32_uart0_printf("phase   cycles  loads stores  lsu%%  alu%% disp%%  frame%%\n");
+
+        const char *names[3] = {"logic ", "render", "fbconv"};
+        for (int i = 0; i < 3; i++) {
+            uint32_t cyc_m = (uint32_t)(prof[i].cycles / 60 / 1000000ULL);
+            uint32_t ld_k  = (uint32_t)(prof[i].loads  / 60 / 1000);
+            uint32_t st_k  = (uint32_t)(prof[i].stores / 60 / 1000);
+            uint32_t lsu   = OCCUPANCY(prof[i].lsu_wait,  prof[i].cycles);
+            uint32_t alu   = OCCUPANCY(prof[i].alu_wait,  prof[i].cycles);
+            uint32_t dis   = OCCUPANCY(prof[i].disp_wait, prof[i].cycles);
+            uint32_t pct   = PCT_OF_TOTAL(prof[i].cycles);
+
+            neorv32_uart0_printf("%s  %uM  %uk %uk  %u.%u  %u.%u  %u.%u  %u.%u%%\n",
+                names[i], cyc_m, ld_k, st_k,
+                lsu / 10, lsu % 10,
+                alu / 10, alu % 10,
+                dis / 10, dis % 10,
+                pct / 10, pct % 10);
+        }
+
+        // Total row
+        {
+            uint32_t cyc_m = (uint32_t)(tot_cycles / 60 / 1000000ULL);
+            uint32_t ld_k  = (uint32_t)(tot_loads  / 60 / 1000);
+            uint32_t st_k  = (uint32_t)(tot_stores / 60 / 1000);
+            uint32_t lsu   = OCCUPANCY(tot_lsu,  tot_cycles);
+            uint32_t alu   = OCCUPANCY(tot_alu,  tot_cycles);
+            uint32_t dis   = OCCUPANCY(tot_disp, tot_cycles);
+
+            neorv32_uart0_printf("TOTAL   %uM  %uk %uk  %u.%u  %u.%u  %u.%u\n",
+                cyc_m, ld_k, st_k,
+                lsu / 10, lsu % 10,
+                alu / 10, alu % 10,
+                dis / 10, dis % 10);
+        }
+
+        #undef PCT_OF_TOTAL
+        #undef OCCUPANCY
+
+        // Reset accumulators
+        memset(prof, 0, sizeof(prof));
     }
 }
 
