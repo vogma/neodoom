@@ -2,7 +2,7 @@ VIVADO ?= vivado
 PROJECT_DIR = neovision
 XPR = $(PROJECT_DIR)/neovision.xpr
 NEORV32_SW = modules/neorv32/sw
-
+DOOM_SW = sw/doom
 # Bootloader config overrides
 BOOTLOADER_FLAGS = -DUART_BAUD=115200 -DEXE_BASE_ADDR=0x11000000
 
@@ -20,6 +20,9 @@ bootloader:
 
 bootloader-clean:
 	$(MAKE) -C $(NEORV32_SW)/bootloader clean
+
+doom:
+	$(MAKE) -C $(DOOM_SW) clean_all exe 
 
 clean:
 	rm -rf $(PROJECT_DIR) .Xil .Xiltemp
