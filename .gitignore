@@ -131,7 +131,9 @@ sim/*.fst
 sw/**
 !sw/doom/doomgeneric
 !sw/doom/Makefile
+!sw/doom/src/
 !sw/**/
 !sw/**/*.c
+!sw/**/*.h
 !sw/**/makefile
 assets/doom1.wad
