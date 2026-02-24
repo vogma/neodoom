@@ -130,6 +130,7 @@ sim/*.fst
 # in sw/, track only C sources and makefiles
 sw/**
 !sw/doom/doomgeneric
+!sw/doom/Makefile
 !sw/**/
 !sw/**/*.c
 !sw/**/makefile
